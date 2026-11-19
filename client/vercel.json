@@ -1,6 +1,5 @@
 {
   "buildCommand": "npm run build:vercel",
-  "ignoreCommand": "node scripts/vercel-ignore.mjs",
   "outputDirectory": "dist",
   "headers": [
     {

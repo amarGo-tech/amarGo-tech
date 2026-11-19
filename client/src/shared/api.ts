@@ -2,7 +2,7 @@ import { apiErrorMessage } from "./errors";
 
 const roleApiModes = ["admin", "store", "courier", "customer"];
 const mode = import.meta.env.MODE;
-const productionGatewayUrl = "https://deliverhub-gateway.onrender.com/api";
+const productionGatewayUrl = "https://amar-go-gateway.onrender.com/api";
 const localGatewayUrl = "http://127.0.0.1:3000/api";
 const defaultGatewayUrl = import.meta.env.PROD ? productionGatewayUrl : localGatewayUrl;
 const defaultApiBaseUrl = roleApiModes.includes(mode) ? `${defaultGatewayUrl}/${mode}` : defaultGatewayUrl;
@@ -28,10 +28,10 @@ const accessTokenStorageKeys: Record<string, string> = {
 };
 
 const defaultRealtimeBaseUrls: Record<string, string> = {
-  admin: import.meta.env.PROD ? "wss://deliverhub-admin-service.onrender.com/realtime" : "ws://127.0.0.1:3101/realtime",
-  store: import.meta.env.PROD ? "wss://deliverhub-store-service.onrender.com/realtime" : "ws://127.0.0.1:3102/realtime",
-  courier: import.meta.env.PROD ? "wss://deliverhub-courier-service.onrender.com/realtime" : "ws://127.0.0.1:3103/realtime",
-  customer: import.meta.env.PROD ? "wss://deliverhub-customer-service.onrender.com/realtime" : "ws://127.0.0.1:3104/realtime",
+  admin: import.meta.env.PROD ? "wss://amar-go-admin.onrender.com/realtime" : "ws://127.0.0.1:3101/realtime",
+  store: import.meta.env.PROD ? "wss://amar-go-store.onrender.com/realtime" : "ws://127.0.0.1:3102/realtime",
+  courier: import.meta.env.PROD ? "wss://amar-go-employee.onrender.com/realtime" : "ws://127.0.0.1:3103/realtime",
+  customer: import.meta.env.PROD ? "wss://amar-go-customer.onrender.com/realtime" : "ws://127.0.0.1:3104/realtime",
 };
 
 export const REALTIME_URL = enforceSecureRealtimeUrl(import.meta.env.VITE_REALTIME_URL ?? defaultRealtimeBaseUrls[mode] ?? "");
@@ -88,7 +88,7 @@ async function requestJson<T>(path: string, options: RequestInit = {}): Promise<
       },
     });
   } catch {
-    throw new Error("Сервертэй холбогдож чадсангүй. Local server-үүд ассан эсэхийг шалгана уу.");
+    throw new Error("Сервертэй холбогдсонгүй. Түр хүлээгээд дахин оролдоно уу.");
   }
 
   if (!response.ok) {

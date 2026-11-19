@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { useRef } from "react";
 import { BrandLogo } from "../../components/BrandLogo";
@@ -153,10 +153,10 @@ function secureRealtimeUrl(url: string, fallback: string) {
   return url.replace(/^http:\/\//, "https://").replace(/^ws:\/\//, "wss://");
 }
 
-const productionApiBaseUrl = "https://deliverhub-gateway.onrender.com/api";
-const productionCustomerRealtimeUrl = "wss://deliverhub-customer-service.onrender.com/realtime";
-const productionEmployeePortalUrl = "https://deliverhub-employee.vercel.app";
-const productionStorePortalUrl = "https://deliverhub-store.vercel.app";
+const productionApiBaseUrl = "https://amar-go-gateway.onrender.com/api";
+const productionCustomerRealtimeUrl = "wss://amar-go-customer.onrender.com/realtime";
+const productionEmployeePortalUrl = "https://amar-go-employee.vercel.app";
+const productionStorePortalUrl = "https://amar-go-store.vercel.app";
 const apiBaseUrl = secureHttpUrl(import.meta.env.VITE_API_BASE_URL ?? (
   import.meta.env.PROD ? productionApiBaseUrl : "http://127.0.0.1:3000/api"
 ), productionApiBaseUrl);
@@ -929,7 +929,7 @@ async function apiPost<T>(path: string, body: unknown, token?: string): Promise<
       body: JSON.stringify(body),
     });
   } catch {
-    throw new Error("Сервертэй холбогдсонгүй. Local API асаалттай эсэхийг шалгана уу.");
+    throw new Error("Сервертэй холбогдсонгүй. Түр хүлээгээд дахин оролдоно уу.");
   }
 
   const payload = await response.json().catch(() => null);
@@ -948,7 +948,7 @@ async function apiGet<T>(path: string, token: string): Promise<T> {
       },
     });
   } catch {
-    throw new Error("Сервертэй холбогдсонгүй. Local API асаалттай эсэхийг шалгана уу.");
+    throw new Error("Сервертэй холбогдсонгүй. Түр хүлээгээд дахин оролдоно уу.");
   }
 
   const payload = await response.json().catch(() => null);
