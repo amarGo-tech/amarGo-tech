@@ -3102,12 +3102,6 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
                             )}
                           </div>
                         </div>
-                        {qpayPayment.mode === "demo" ? (
-                          <p className="landing-qpay-demo-note" role="status">
-                            {qpayPayment.warning
-                              || "Демо горим: QPay түр боломжгүй байна. “Төлбөр шалгах” дарж захиалгаа үргэлжлүүлнэ үү."}
-                          </p>
-                        ) : null}
                         {qpayVisibleBankLinks.length ? (
                           <button className="landing-qpay-more-apps" onClick={() => setQpayAppsOpen(true)} type="button">
                             Бусад банкны app харах

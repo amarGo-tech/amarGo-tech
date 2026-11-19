@@ -1,4 +1,4 @@
-﻿import { ActorRole, OrderStatus, PaymentStatus } from "@prisma/client";
+import { ActorRole, OrderStatus, PaymentStatus } from "@prisma/client";
 import { appCache } from "@deliverhub/server-platform/cache/memory-cache";
 import {
   hashPassword,
@@ -13,7 +13,7 @@ import { createNotificationFromEvent } from "@deliverhub/server-platform/notific
 import { customerEventBus } from "../messaging.js";
 import { findCustomerOrderHistory, findCustomerWithLatestOrder } from "../repositories/customer.repository.js";
 import { formatTrackingTime, maskPhone } from "../utils/customer-formatting.js";
-import { checkQpayInvoice, createQpayInvoice } from "./qpay.service.js";
+import { checkQpayInvoice, createQpayInvoice, isQpayConfigured } from "./qpay.service.js";
 
 const demoTenantSlug = "deliverhub-public";
 const demoStoreSlug = "nomincart-public";
@@ -483,6 +483,13 @@ export async function createCustomerOrder(userId, input) {
     throw createHttpError(401, "Захиалга хийхийн тулд нэвтэрнэ үү.", "UNAUTHENTICATED");
   }
 
+  if (String(input.paymentMethod ?? "QPay").toLowerCase() !== "qpay") {
+    throw createHttpError(400, "Зөвхөн QPay төлбөр дэмжинэ.", "PAYMENT_METHOD_UNSUPPORTED");
+  }
+  if (!isQpayConfigured()) {
+    throw createHttpError(503, "QPay merchant тохиргоо дутуу байна.", "QPAY_NOT_CONFIGURED");
+  }
+
   const customer = await prisma.customer.findUnique({ where: { userId } });
   if (!customer) throw createHttpError(404, "Хэрэглэгч олдсонгүй.", "NOT_FOUND");
 
@@ -543,7 +550,7 @@ export async function createCustomerOrder(userId, input) {
         branchId: branch.id,
         customerId: customer.id,
         customerAddressId: address.id,
-        status: useQpay ? OrderStatus.PAYMENT_PENDING : OrderStatus.PAID,
+        status: OrderStatus.PAYMENT_PENDING,
         subtotalMnt: BigInt(subtotalMnt),
         deliveryFeeMnt: BigInt(quote.deliveryFeeMnt),
         serviceFeeMnt: BigInt(serviceFeeMnt),
@@ -569,34 +576,12 @@ export async function createCustomerOrder(userId, input) {
       data: [
         {
           orderId: createdOrder.id,
-          status: useQpay ? OrderStatus.PAYMENT_PENDING : OrderStatus.PAID,
+          status: OrderStatus.PAYMENT_PENDING,
           note: useQpay ? "QPay төлбөр хүлээгдэж байна" : "Төлбөр төлөгдсөн",
           evidence: { contactEmail, otpChannel: "email" },
         },
       ],
     });
-
-    if (!useQpay) {
-      await tx.paymentInvoice.create({
-        data: {
-          tenantId: tenant.id,
-          orderId: createdOrder.id,
-          provider: "local-demo",
-          providerInvoiceId: `local-${createdOrder.id}`,
-          amountMnt: BigInt(totalMnt),
-          status: PaymentStatus.PAID,
-          paidAt: new Date(),
-          callbackPayload: {
-            deliveryType: quote.deliveryType,
-            deliveryTypeLabel: quote.deliveryTypeLabel,
-            distanceKm: quote.distanceKm,
-            weightKg: quote.weightKg,
-            contactEmail,
-            otpChannel: "email",
-          },
-        },
-      });
-    }
 
     return createdOrder;
   });
@@ -604,8 +589,8 @@ export async function createCustomerOrder(userId, input) {
   appCache.forget?.(`customer:tracking:${userId}`);
 
   let payment = {
-    status: useQpay ? "PENDING" : "PAID",
-    provider: useQpay ? "qpay" : "local-demo",
+    status: "PENDING",
+    provider: "qpay",
   };
 
   if (useQpay) {
@@ -665,17 +650,6 @@ export async function createCustomerOrder(userId, input) {
       });
       throw error;
     }
-  } else {
-    const paidOrder = await prisma.order.findUnique({
-      where: { id: order.id },
-      include: {
-        store: true,
-        customer: true,
-        customerAddress: true,
-        items: true,
-      },
-    });
-    publishPaidOrder(paidOrder, quote, paymentMethod);
   }
 
   return {
@@ -822,7 +796,7 @@ export async function confirmQpayPayment(input = {}, { userId } = {}) {
   }
 
   const paymentCheck = await checkQpayInvoice(invoice.providerInvoiceId);
-  if (!paymentCheck.paid) {
+  if (!paymentCheck.paid || paymentCheck.paidAmount < Number(invoice.amountMnt) || Number(invoice.amountMnt) <= 0) {
     return {
       success: false,
       status: "PENDING",

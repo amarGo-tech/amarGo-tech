@@ -762,7 +762,7 @@ export async function checkStoreSubscriptionPayment(tenantId, payload = {}) {
   }
 
   const paymentCheck = await checkQpayInvoice(invoiceId);
-  if (!paymentCheck.paid) {
+  if (!paymentCheck.paid || paymentCheck.paidAmount < pendingInvoice.amountMnt) {
     return {
       success: false,
       status: "PENDING",

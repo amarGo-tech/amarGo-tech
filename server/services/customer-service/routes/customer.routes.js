@@ -21,6 +21,7 @@ export function registerCustomerRoutes(app, { basePath = "/api/customer" } = {})
   app.get(`${basePath}/stores`, asyncHandler(listStores));
   app.post(`${basePath}/orders`, requireAuth, asyncHandler(createOrder));
   app.post(`${basePath}/payments/qpay/callback`, asyncHandler(receiveQpayCallback));
+  app.get(`${basePath}/payments/qpay/callback`, asyncHandler(receiveQpayCallback));
   app.post(`${basePath}/payments/qpay/check`, requireAuth, asyncHandler(checkQpayPayment));
   app.get(`${basePath}/orders/history`, requireAuth, asyncHandler(listOrderHistory));
   app.get(`${basePath}/orders/current/tracking`, requireAuth, asyncHandler(showCurrentCustomerTracking));

@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test:qpay": "node --test tests/qpay.test.mjs",
     "test:rbac": "node --test tests/rbac.test.mjs",
     "dev": "node src/scripts/dev-all.js",
     "backup": "node src/scripts/backup-source.js manual",

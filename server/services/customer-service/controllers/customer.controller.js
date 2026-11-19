@@ -32,7 +32,7 @@ export async function checkQpayPayment(request, response) {
 
 export async function receiveQpayCallback(request, response) {
   // Provider callbacks verify payment with QPay itself and return no order data.
-  await confirmQpayPayment(request.body);
+  await confirmQpayPayment({ ...request.query, ...request.body });
   response.json({ ok: true });
 }
 

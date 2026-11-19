@@ -11,6 +11,7 @@
     "packages/*"
   ],
   "scripts": {
+    "test:qpay": "npm run test:qpay --workspace @deliverhub/api",
     "test:rbac": "npm run test:rbac --workspace @deliverhub/api",
     "dev": "npm run dev --workspace client",
     "dev:server": "npm run dev --workspace @deliverhub/api",
