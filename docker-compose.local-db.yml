@@ -1,0 +1,20 @@
+name: amargo-local
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: amargo-postgres
+    environment:
+      POSTGRES_DB: deliverhub
+      POSTGRES_USER: deliverhub
+      POSTGRES_PASSWORD: deliverhub-local
+    ports:
+      - "127.0.0.1:5544:5432"
+    volumes:
+      - amargo-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deliverhub -d deliverhub"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+volumes:
+  amargo-postgres:

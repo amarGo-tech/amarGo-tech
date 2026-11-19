@@ -1,0 +1,46 @@
+# Dependencies and generated output (all workspaces)
+node_modules/
+dist/
+coverage/
+.vite/
+.cache/
+*.tsbuildinfo
+
+# Local configuration and secrets; keep safe setup templates
+.env
+.env.*
+!.env.example
+!.env.*.example
+.aws/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Runtime data, backups, and database exports
+*.log
+*.pid
+*.pid.lock
+backups/
+*.dump
+*.backup
+
+# Machine-specific tools and deployment state
+.agents/
+.codex/
+.claude/
+.vercel/
+.netlify/
+.vscode/
+.idea/
+
+# OS and temporary files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+tmp/
+.tmp/
+
