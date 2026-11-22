@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { useRef } from "react";
 import { createCameraSession } from "../../shared/cameraSession";
-import { addressSuggestion, preciseLocation, validCoordinates } from "../../shared/deliveryLocation";
+import { preciseLocation, validCoordinates, watchAccurateLocation } from "../../shared/deliveryLocation";
 import { BrandLogo } from "../../components/BrandLogo";
 import { InteractiveRouteMap, type RouteMapLine, type RouteMapMarker } from "../../components/InteractiveRouteMap";
 import { nominCatalogProducts, nominStoreProfile } from "../../shared/nominCatalog";
@@ -760,25 +760,6 @@ function qpayBankLinkFor(
   });
 }
 
-type LocationSuggestion = {
-  id: string;
-  label: string;
-  detail: string;
-};
-
-async function fetchLocationSuggestions(location: GeoLocation, signal?: AbortSignal): Promise<LocationSuggestion[]> {
-  const url = new URL("https://nominatim.openstreetmap.org/reverse");
-  url.searchParams.set("format", "jsonv2");
-  url.searchParams.set("lat", String(location.latitude));
-  url.searchParams.set("lon", String(location.longitude));
-  url.searchParams.set("addressdetails", "1");
-  url.searchParams.set("zoom", "18");
-  url.searchParams.set("accept-language", "mn,en");
-  const response = await fetch(url, { signal });
-  if (!response.ok) throw new Error("Хаяг татахад алдаа гарлаа.");
-  const suggestion = addressSuggestion(await response.json(), location);
-  return suggestion ? [suggestion] : [];
-}
 function fixMojibake(value: string) {
   if (!/[ÃÐÑÒÓ]/.test(value)) return value;
 
@@ -1024,15 +1005,14 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
   const [productQuantities, setProductQuantities] = useState<Record<string, number>>({});
   const [deliveryType, setDeliveryType] = useState<DeliveryType>("bike");
   const [location, setLocation] = useState<GeoLocation | null>(null);
+  const [gpsLocation, setGpsLocation] = useState<GeoLocation | null>(null);
+  const stopGpsRef = useRef<(() => void) | null>(null);
   const [locationConfirmed, setLocationConfirmed] = useState(false);
   const locationRequestRef = useRef(0);
-  const locationAbortRef = useRef<AbortController | null>(null);
   const [addressText, setAddressText] = useState("");
   const [addressUnit, setAddressUnit] = useState("");
-  const [addressLabel, setAddressLabel] = useState("Одоогийн байршил");
   const [checkoutEmail, setCheckoutEmail] = useState("");
   const [checkoutPhone, setCheckoutPhone] = useState("");
-  const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
   const [addressLookupLoading, setAddressLookupLoading] = useState(false);
   const [addressError, setAddressError] = useState("");
   const [checkoutError, setCheckoutError] = useState("");
@@ -1084,8 +1064,17 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
 
   useEffect(() => () => {
     locationRequestRef.current++;
-    locationAbortRef.current?.abort();
+    stopGpsRef.current?.();
   }, []);
+
+  useEffect(() => {
+    if (!cartOpen) {
+      locationRequestRef.current++;
+      stopGpsRef.current?.();
+      setAddressLookupLoading(false);
+      setLoading(false);
+    }
+  }, [cartOpen]);
 
   useEffect(() => {
     if (!session) {
@@ -1475,7 +1464,6 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
     paymentMethod,
     selectedItems.map((item) => `${item.id}:${item.quantity}`).join("|"),
     deliveryType,
-    addressLabel,
     addressText,
     addressUnit,
     checkoutEmail,
@@ -1502,19 +1490,6 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
   useEffect(() => {
     setQpayPayment(null);
   }, [qpayDraftKey]);
-
-  const addressSuggestions = [
-    addressLabel,
-    addressText,
-    addressUnit,
-    ...locationSuggestions.map((suggestion) => suggestion.label),
-  ].filter(Boolean);
-
-  function chooseLocationSuggestion(suggestion: LocationSuggestion) {
-    setAddressLabel(suggestion.label);
-    setAddressText(suggestion.detail || suggestion.label);
-    setAddressError("");
-  }
 
   function openMarket() {
     setSection("market");
@@ -1661,7 +1636,7 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
     setAddressError("");
     const paymentLabel = paymentMethods.find((method) => method.id === paymentMethod)?.label ?? "QPay";
     const deliveryAddressText = [addressText.trim(), addressUnit.trim()].filter(Boolean).join(" · ");
-    const district = addressSuggestions.join(" · ") || deliveryAddressText;
+    const district = deliveryAddressText;
     const storeName = selectedItems[0]?.storeName ?? selectedStore?.name ?? "DeliverHub market";
     let orderResult: {
       orderNo: string;
@@ -1688,7 +1663,8 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
           weightGrams: item.weightGrams,
         })),
         addressText: deliveryAddressText,
-        addressLabel,
+          addressLabel: addressText.trim(),
+
         contactEmail: normalizedCheckoutEmail,
         contactPhone: normalizedCheckoutPhone,
         location,
@@ -1857,88 +1833,55 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
     }
   }
 
-  async function lookupDeliveryAddress(point: GeoLocation, request: number) {
-    locationAbortRef.current?.abort();
-    const controller = new AbortController();
-    locationAbortRef.current = controller;
-    const timeout = window.setTimeout(() => controller.abort(), 8000);
-    try {
-      const suggestions = await fetchLocationSuggestions(point, controller.signal);
-      if (request !== locationRequestRef.current) return;
-      setLocationSuggestions(suggestions);
-      setNotice(suggestions.length
-        ? "Хаягийн санал олдлоо. Өөрийн хаягтай таарч байвал сонгоод байр, орц, тоотоо нэмнэ үү."
-        : "Энэ цэгийн хаяг олдсонгүй. Дэлгэрэнгүй хаягаа гараар оруулна уу.");
-    } catch {
-      if (request !== locationRequestRef.current) return;
-      setLocationSuggestions([]);
-      setNotice("Хаягийн нэр татагдсангүй. Газрын зураг дээрх цэгээ батлаад хаягаа гараар оруулна уу.");
-    } finally {
-      window.clearTimeout(timeout);
-      if (request === locationRequestRef.current) setAddressLookupLoading(false);
-    }
-  }
-
   function confirmDeliveryPoint(point: { lat: number; lng: number }) {
     const nextLocation = { latitude: point.lat, longitude: point.lng };
     if (!validCoordinates(nextLocation)) return;
-    const request = ++locationRequestRef.current;
+    locationRequestRef.current++;
+    stopGpsRef.current?.();
     setLocation(nextLocation);
     setLocationConfirmed(true);
-    setAddressLabel("Газрын зураг дээр баталсан цэг");
     setAddressError("");
-    setLocationSuggestions([]);
     setLoading(false);
-    setAddressLookupLoading(true);
-    void lookupDeliveryAddress(nextLocation, request);
+    setAddressLookupLoading(false);
   }
 
   function useCurrentLocation() {
     if (!navigator.geolocation) {
-      setAddressError("Байршил авах боломжгүй. Газрын зураг дээр хүргэлтийн цэгээ сонгоно уу.");
+      setAddressError("Энэ төхөөрөмж байршил авах боломжгүй байна.");
       return;
     }
+    stopGpsRef.current?.();
     const request = ++locationRequestRef.current;
-    locationAbortRef.current?.abort();
     setLoading(true);
     setAddressLookupLoading(true);
-    setLocationSuggestions([]);
     setLocationConfirmed(false);
+    setGpsLocation(null);
+    setLocation(null);
     setAddressError("");
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
+    stopGpsRef.current = watchAccurateLocation({
+      geolocation: navigator.geolocation,
+      onPosition: (point) => {
         if (request !== locationRequestRef.current) return;
-        const nextLocation = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-        };
-        if (!validCoordinates(nextLocation)) {
-          setAddressError("Төхөөрөмжөөс зөв байршил ирсэнгүй. Газрын зураг дээр сонгоно уу.");
-          setAddressLookupLoading(false);
-          setLoading(false);
-          return;
-        }
-        setLocation(nextLocation);
-        setAddressLabel("Төхөөрөмжөөс авсан ойролцоо байршил");
-        setLoading(false);
-        if (!preciseLocation(nextLocation)) {
-          setNotice("Байршлын нарийвчлал бага байна. Газрын зургийг хөдөлгөж хүргэлтийн цэгээ зөв газар батална уу.");
-          setAddressLookupLoading(false);
-          return;
-        }
-        await lookupDeliveryAddress(nextLocation, request);
+        setGpsLocation(point);
+        setLocation(point);
       },
-      (error) => {
+      onComplete: (point) => {
+        if (request !== locationRequestRef.current) return;
+        setLoading(false);
+        setAddressLookupLoading(false);
+        const precise = preciseLocation(point);
+        setLocationConfirmed(precise);
+        setAddressError(precise ? "" : "Төхөөрөмжийн байршил нарийвчлал муутай байна. Утасны байршлын нарийвчилсан зөвшөөрлийг асааж дахин хэмжих эсвэл зураг дээр хүргүүлэх цэгээ батална уу.");
+      },
+      onError: (error) => {
         if (request !== locationRequestRef.current) return;
         setAddressError(error.code === 1
-          ? "Байршлын зөвшөөрөл олгоогүй байна. Зөвшөөрөл өгөх эсвэл газрын зураг дээр цэгээ сонгоно уу."
-          : "Байршил авч чадсангүй. Дахин оролдох эсвэл газрын зураг дээр цэгээ сонгоно уу.");
+          ? "Байршлын зөвшөөрөл олгоогүй байна. Browser болон төхөөрөмжийн байршлын зөвшөөрлийг асаана уу."
+          : "Шинэ байршил авч чадсангүй. Утасны байршлын үйлчилгээг асаагаад дахин оролдоно уу.");
         setAddressLookupLoading(false);
         setLoading(false);
       },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 },
-    );
+    });
   }
   async function submitAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -3020,33 +2963,30 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
                       </div>
                       <span>
                         {location
-                          ? addressLabel || "GPS байршил авсан"
+                          ? location.accuracy != null ? "Төхөөрөмжөөс хэмжсэн байршил" : "Газрын зураг дээр баталсан хүргэлтийн цэг"
                           : "GPS байршил аваагүй байна"}
                       </span>
-                      {location && (
+                      {gpsLocation && (
                         <small>
-                          {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
-                          {location.accuracy != null ? ` · Нарийвчлал ±${Math.round(location.accuracy)} м` : ""}
+                          {gpsLocation.latitude.toFixed(6)}, {gpsLocation.longitude.toFixed(6)}
+                          {gpsLocation.accuracy != null ? ` · Нарийвчлал ±${Math.round(gpsLocation.accuracy)} м` : ""}
                         </small>
                       )}
-                      <p>Газрын зургийг хөдөлгөж ⊕ тэмдгийг хүргүүлэх газартаа байрлуулаад батална уу.</p>
+                      <p>Цэнхэр цэг нь төхөөрөмжийн байршил, хүрээ нь хэмжилтийн алдааны хүрээ. Хүргүүлэх өөр цэг сонгох бол ⊕ тэмдгээр батална уу.</p>
+                      {location && (
                       <InteractiveRouteMap
                         className="delivery-address-map"
-                        markers={location ? [{
-                          id: "delivery-address",
-                          point: { lat: location.latitude, lng: location.longitude },
-                          label: locationConfirmed ? "Баталсан хүргэлтийн цэг" : "Ойролцоо байршил",
-                          kind: "customer",
-                        }] : []}
+                        markers={[
+                          ...(gpsLocation ? [{ id: "device-gps", point: { lat: gpsLocation.latitude, lng: gpsLocation.longitude },
+                            label: "Төхөөрөмжийн хэмжсэн байршил", kind: "gps" as const, accuracyMeters: gpsLocation.accuracy }] : []),
+                          ...(location.accuracy == null ? [{ id: "delivery-address", point: { lat: location.latitude, lng: location.longitude },
+                            label: "Гараар баталсан хүргэлтийн цэг", kind: "customer" as const }] : []),
+                        ]}
                         initialZoom={16}
                         onSelectPoint={confirmDeliveryPoint}
                       />
+                      )}
                       <p role="status">{locationConfirmed ? "Хүргэлтийн цэг батлагдсан." : "Хүргэлтийн цэгээ батлаагүй байна."}</p>
-                      {locationSuggestions.map((suggestion) => (
-                        <button key={suggestion.id} type="button" onClick={() => chooseLocationSuggestion(suggestion)}>
-                          Хаягийн санал: {suggestion.label}
-                        </button>
-                      ))}
                       {addressLookupLoading ? (
                         <div className="landing-address-loading" role="status">
                           <span aria-hidden="true" />
