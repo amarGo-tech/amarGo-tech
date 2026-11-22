@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { useRef } from "react";
+import { createCameraSession } from "../../shared/cameraSession";
+import { addressSuggestion, preciseLocation, validCoordinates } from "../../shared/deliveryLocation";
 import { BrandLogo } from "../../components/BrandLogo";
 import { InteractiveRouteMap, type RouteMapLine, type RouteMapMarker } from "../../components/InteractiveRouteMap";
 import { nominCatalogProducts, nominStoreProfile } from "../../shared/nominCatalog";
@@ -764,97 +766,19 @@ type LocationSuggestion = {
   detail: string;
 };
 
-type NominatimAddress = {
-  house_number?: string;
-  road?: string;
-  pedestrian?: string;
-  footway?: string;
-  neighbourhood?: string;
-  suburb?: string;
-  district?: string;
-  city?: string;
-  town?: string;
-  state?: string;
-  country?: string;
-};
-
-type NominatimPlace = {
-  place_id?: number;
-  display_name?: string;
-  name?: string;
-  lat?: string;
-  lon?: string;
-  address?: NominatimAddress;
-};
-
-function compactAddressName(place: NominatimPlace) {
-  const address = place.address ?? {};
-  return [
-    address.road ?? address.pedestrian ?? address.footway ?? place.name,
-    address.neighbourhood ?? address.suburb ?? address.district,
-    address.city ?? address.town,
-  ].filter(Boolean).join(", ");
+async function fetchLocationSuggestions(location: GeoLocation, signal?: AbortSignal): Promise<LocationSuggestion[]> {
+  const url = new URL("https://nominatim.openstreetmap.org/reverse");
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("lat", String(location.latitude));
+  url.searchParams.set("lon", String(location.longitude));
+  url.searchParams.set("addressdetails", "1");
+  url.searchParams.set("zoom", "18");
+  url.searchParams.set("accept-language", "mn,en");
+  const response = await fetch(url, { signal });
+  if (!response.ok) throw new Error("Хаяг татахад алдаа гарлаа.");
+  const suggestion = addressSuggestion(await response.json(), location);
+  return suggestion ? [suggestion] : [];
 }
-
-function locationSuggestionFromPlace(place: NominatimPlace, fallbackId: string): LocationSuggestion | null {
-  const label = compactAddressName(place) || place.display_name?.split(",").slice(0, 2).join(", ").trim();
-  const detail = place.display_name?.trim() ?? "";
-  if (!label && !detail) return null;
-
-  return {
-    id: String(place.place_id ?? fallbackId),
-    label: label || detail,
-    detail,
-  };
-}
-
-async function fetchLocationSuggestions(location: GeoLocation) {
-  const reverseUrl = new URL("https://nominatim.openstreetmap.org/reverse");
-  reverseUrl.searchParams.set("format", "jsonv2");
-  reverseUrl.searchParams.set("lat", String(location.latitude));
-  reverseUrl.searchParams.set("lon", String(location.longitude));
-  reverseUrl.searchParams.set("addressdetails", "1");
-  reverseUrl.searchParams.set("accept-language", "mn,en");
-
-  const reverseResponse = await fetch(reverseUrl.toString());
-  if (!reverseResponse.ok) throw new Error("reverse geocode failed");
-  const reversePlace = await reverseResponse.json() as NominatimPlace;
-  const reverseSuggestion = locationSuggestionFromPlace(reversePlace, "gps");
-
-  const searchSeed = compactAddressName(reversePlace).split(",")[0]?.trim();
-  const searchSuggestions: LocationSuggestion[] = [];
-
-  if (searchSeed) {
-    const searchUrl = new URL("https://nominatim.openstreetmap.org/search");
-    searchUrl.searchParams.set("format", "jsonv2");
-    searchUrl.searchParams.set("q", `${searchSeed}, Ulaanbaatar`);
-    searchUrl.searchParams.set("addressdetails", "1");
-    searchUrl.searchParams.set("limit", "5");
-    searchUrl.searchParams.set("accept-language", "mn,en");
-    const delta = 0.018;
-    searchUrl.searchParams.set("viewbox", [
-      location.longitude - delta,
-      location.latitude + delta,
-      location.longitude + delta,
-      location.latitude - delta,
-    ].join(","));
-    searchUrl.searchParams.set("bounded", "1");
-
-    const searchResponse = await fetch(searchUrl.toString());
-    if (searchResponse.ok) {
-      const places = await searchResponse.json() as NominatimPlace[];
-      searchSuggestions.push(...places
-        .map((place, index) => locationSuggestionFromPlace(place, `nearby-${index}`))
-        .filter((suggestion): suggestion is LocationSuggestion => Boolean(suggestion)));
-    }
-  }
-
-  return [reverseSuggestion, ...searchSuggestions]
-    .filter((suggestion): suggestion is LocationSuggestion => Boolean(suggestion))
-    .filter((suggestion, index, suggestions) => suggestions.findIndex((item) => item.label === suggestion.label) === index)
-    .slice(0, 5);
-}
-
 function fixMojibake(value: string) {
   if (!/[ÃÐÑÒÓ]/.test(value)) return value;
 
@@ -1045,7 +969,18 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
   const [partnerAgreementAccepted, setPartnerAgreementAccepted] = useState(false);
   const partnerVideoRef = useRef<HTMLVideoElement | null>(null);
   const partnerCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const partnerStreamRef = useRef<MediaStream | null>(null);
+  const partnerCameraSessionRef = useRef<ReturnType<typeof createCameraSession> | null>(null);
+  if (!partnerCameraSessionRef.current) {
+    partnerCameraSessionRef.current = createCameraSession({
+      getStream: () => navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false }),
+      onActive: setPartnerCameraActive,
+      onError: setPartnerCameraError,
+    });
+  }
+  const attachPartnerVideo = useCallback((video: HTMLVideoElement | null) => {
+    partnerVideoRef.current = video;
+    partnerCameraSessionRef.current?.attach(video);
+  }, []);
   const [session, setSession] = useState<CustomerSession | null>(() => {
     const token = localStorage.getItem(tokenStorageKey);
     const customer = localStorage.getItem(customerStorageKey);
@@ -1089,6 +1024,9 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
   const [productQuantities, setProductQuantities] = useState<Record<string, number>>({});
   const [deliveryType, setDeliveryType] = useState<DeliveryType>("bike");
   const [location, setLocation] = useState<GeoLocation | null>(null);
+  const [locationConfirmed, setLocationConfirmed] = useState(false);
+  const locationRequestRef = useRef(0);
+  const locationAbortRef = useRef<AbortController | null>(null);
   const [addressText, setAddressText] = useState("");
   const [addressUnit, setAddressUnit] = useState("");
   const [addressLabel, setAddressLabel] = useState("Одоогийн байршил");
@@ -1139,6 +1077,15 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
 
     return () => stopPartnerCamera();
   }, [partnerAuthOpen]);
+
+  useEffect(() => {
+    if (!partnerAuthOpen || partnerAuthMode !== "register" || partnerFormStep !== 3) stopPartnerCamera();
+  }, [partnerAuthOpen, partnerAuthMode, partnerFormStep]);
+
+  useEffect(() => () => {
+    locationRequestRef.current++;
+    locationAbortRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     if (!session) {
@@ -1687,9 +1634,9 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
       return;
     }
 
-    if (!location) {
-      setAddressError("Одоогийн GPS байршлаа заавал авна уу.");
-      setCheckoutError("Одоогийн GPS байршлаа заавал авна уу.");
+    if (!location || !locationConfirmed) {
+      setAddressError("Газрын зураг дээр хүргэлтийн цэгээ батална уу.");
+      setCheckoutError("Газрын зураг дээр хүргэлтийн цэгээ батална уу.");
       return;
     }
 
@@ -1910,49 +1857,89 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
     }
   }
 
+  async function lookupDeliveryAddress(point: GeoLocation, request: number) {
+    locationAbortRef.current?.abort();
+    const controller = new AbortController();
+    locationAbortRef.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 8000);
+    try {
+      const suggestions = await fetchLocationSuggestions(point, controller.signal);
+      if (request !== locationRequestRef.current) return;
+      setLocationSuggestions(suggestions);
+      setNotice(suggestions.length
+        ? "Хаягийн санал олдлоо. Өөрийн хаягтай таарч байвал сонгоод байр, орц, тоотоо нэмнэ үү."
+        : "Энэ цэгийн хаяг олдсонгүй. Дэлгэрэнгүй хаягаа гараар оруулна уу.");
+    } catch {
+      if (request !== locationRequestRef.current) return;
+      setLocationSuggestions([]);
+      setNotice("Хаягийн нэр татагдсангүй. Газрын зураг дээрх цэгээ батлаад хаягаа гараар оруулна уу.");
+    } finally {
+      window.clearTimeout(timeout);
+      if (request === locationRequestRef.current) setAddressLookupLoading(false);
+    }
+  }
+
+  function confirmDeliveryPoint(point: { lat: number; lng: number }) {
+    const nextLocation = { latitude: point.lat, longitude: point.lng };
+    if (!validCoordinates(nextLocation)) return;
+    const request = ++locationRequestRef.current;
+    setLocation(nextLocation);
+    setLocationConfirmed(true);
+    setAddressLabel("Газрын зураг дээр баталсан цэг");
+    setAddressError("");
+    setLocationSuggestions([]);
+    setLoading(false);
+    setAddressLookupLoading(true);
+    void lookupDeliveryAddress(nextLocation, request);
+  }
+
   function useCurrentLocation() {
     if (!navigator.geolocation) {
-      setNotice("Таны browser location дэмжихгүй байна. Хаягаа текстээр оруулна уу.");
+      setAddressError("Байршил авах боломжгүй. Газрын зураг дээр хүргэлтийн цэгээ сонгоно уу.");
       return;
     }
-
+    const request = ++locationRequestRef.current;
+    locationAbortRef.current?.abort();
     setLoading(true);
     setAddressLookupLoading(true);
+    setLocationSuggestions([]);
+    setLocationConfirmed(false);
+    setAddressError("");
     navigator.geolocation.getCurrentPosition(
       async (position) => {
+        if (request !== locationRequestRef.current) return;
         const nextLocation = {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
           accuracy: position.coords.accuracy,
         };
-        setLocation(nextLocation);
-        setAddressError("");
-        try {
-          const suggestions = await fetchLocationSuggestions(nextLocation);
-          setLocationSuggestions(suggestions);
-          if (suggestions[0]) {
-            chooseLocationSuggestion(suggestions[0]);
-            setNotice("Байршлын ойролцоох хаягийг оллоо. Буруу бол доорх сонголтоос сонгоод, байр/тоотоо нэмээрэй.");
-          } else {
-            setNotice("GPS авлаа. Хаягийн нэр олдсонгүй, хаягаа гараар оруулаад байр/тоотоо нэмээрэй.");
-          }
-        } catch {
-          setLocationSuggestions([]);
-          setNotice("GPS авлаа. Хаягийн нэр татахад алдаа гарлаа, хаягаа гараар оруулаад байр/тоотоо нэмээрэй.");
-        } finally {
+        if (!validCoordinates(nextLocation)) {
+          setAddressError("Төхөөрөмжөөс зөв байршил ирсэнгүй. Газрын зураг дээр сонгоно уу.");
           setAddressLookupLoading(false);
           setLoading(false);
+          return;
         }
+        setLocation(nextLocation);
+        setAddressLabel("Төхөөрөмжөөс авсан ойролцоо байршил");
+        setLoading(false);
+        if (!preciseLocation(nextLocation)) {
+          setNotice("Байршлын нарийвчлал бага байна. Газрын зургийг хөдөлгөж хүргэлтийн цэгээ зөв газар батална уу.");
+          setAddressLookupLoading(false);
+          return;
+        }
+        await lookupDeliveryAddress(nextLocation, request);
       },
-      () => {
-        setAddressError("GPS зөвшөөрөгдсөнгүй. Хүргэлт хийхийн тулд одоогийн байршлаа заавал зөвшөөрнө үү.");
+      (error) => {
+        if (request !== locationRequestRef.current) return;
+        setAddressError(error.code === 1
+          ? "Байршлын зөвшөөрөл олгоогүй байна. Зөвшөөрөл өгөх эсвэл газрын зураг дээр цэгээ сонгоно уу."
+          : "Байршил авч чадсангүй. Дахин оролдох эсвэл газрын зураг дээр цэгээ сонгоно уу.");
         setAddressLookupLoading(false);
         setLoading(false);
       },
-      { enableHighAccuracy: true, timeout: 12000 },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 },
     );
   }
-
   async function submitAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
@@ -2013,30 +2000,23 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
   }
 
   function stopPartnerCamera() {
-    partnerStreamRef.current?.getTracks().forEach((track) => track.stop());
-    partnerStreamRef.current = null;
-    setPartnerCameraActive(false);
+    partnerCameraSessionRef.current?.stop();
   }
 
   async function startPartnerCamera() {
-    setPartnerCameraError("");
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
-      partnerStreamRef.current = stream;
-      if (partnerVideoRef.current) {
-        partnerVideoRef.current.srcObject = stream;
-        await partnerVideoRef.current.play().catch(() => {});
-      }
-      setPartnerCameraActive(true);
-    } catch {
-      setPartnerCameraError("Камерт хандах эрх олгогдоогүй байна. Зөвшөөрөл олгоод дахин оролдоно уу.");
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setPartnerCameraError("Камер ашиглах боломжгүй. HTTPS хаягаар Chrome эсвэл Safari дээр нээнэ үү.");
+      return;
     }
+    await partnerCameraSessionRef.current?.start();
   }
-
   function capturePartnerPhoto() {
     const video = partnerVideoRef.current;
     const canvas = partnerCanvasRef.current;
-    if (!video || !canvas || !video.videoWidth) return;
+    if (!video || !canvas || !video.videoWidth || video.readyState < 2) {
+      setPartnerCameraError("Камерын дүрс хараахан бэлэн болоогүй байна. Түр хүлээгээд дахин зураг авна уу.");
+      return;
+    }
 
     canvas.width = 480;
     canvas.height = Math.round((video.videoHeight / video.videoWidth) * 480) || 360;
@@ -3043,6 +3023,30 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
                           ? addressLabel || "GPS байршил авсан"
                           : "GPS байршил аваагүй байна"}
                       </span>
+                      {location && (
+                        <small>
+                          {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
+                          {location.accuracy != null ? ` · Нарийвчлал ±${Math.round(location.accuracy)} м` : ""}
+                        </small>
+                      )}
+                      <p>Газрын зургийг хөдөлгөж ⊕ тэмдгийг хүргүүлэх газартаа байрлуулаад батална уу.</p>
+                      <InteractiveRouteMap
+                        className="delivery-address-map"
+                        markers={location ? [{
+                          id: "delivery-address",
+                          point: { lat: location.latitude, lng: location.longitude },
+                          label: locationConfirmed ? "Баталсан хүргэлтийн цэг" : "Ойролцоо байршил",
+                          kind: "customer",
+                        }] : []}
+                        initialZoom={16}
+                        onSelectPoint={confirmDeliveryPoint}
+                      />
+                      <p role="status">{locationConfirmed ? "Хүргэлтийн цэг батлагдсан." : "Хүргэлтийн цэгээ батлаагүй байна."}</p>
+                      {locationSuggestions.map((suggestion) => (
+                        <button key={suggestion.id} type="button" onClick={() => chooseLocationSuggestion(suggestion)}>
+                          Хаягийн санал: {suggestion.label}
+                        </button>
+                      ))}
                       {addressLookupLoading ? (
                         <div className="landing-address-loading" role="status">
                           <span aria-hidden="true" />
@@ -3387,7 +3391,7 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
                       {partnerVerification.livePhotoDataUrl ? (
                         <img alt="Баталгаажуулах зураг" src={partnerVerification.livePhotoDataUrl} />
                       ) : (
-                        <video autoPlay muted playsInline ref={partnerVideoRef} />
+                        <video autoPlay muted playsInline ref={attachPartnerVideo} />
                       )}
                       {!partnerVerification.livePhotoDataUrl && !partnerCameraActive ? (
                         <button className="landing-partner-camera-cta" onClick={startPartnerCamera} type="button">Камер асаах</button>

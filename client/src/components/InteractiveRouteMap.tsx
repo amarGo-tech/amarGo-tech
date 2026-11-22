@@ -97,6 +97,7 @@ export function InteractiveRouteMap({
   statusLabel,
   statusDetail,
   children,
+  onSelectPoint,
 }: {
   className?: string;
   markers: RouteMapMarker[];
@@ -105,6 +106,7 @@ export function InteractiveRouteMap({
   statusLabel?: string;
   statusDetail?: string;
   children?: ReactNode;
+  onSelectPoint?: (point: RouteMapPoint) => void;
 }) {
   const safeMarkers = useMemo(() => markers.filter((marker) => isValidPoint(marker.point)), [markers]);
   const safeRoutes = useMemo(() => routes.filter((route) => isValidPoint(route.from) && isValidPoint(route.to)), [routes]);
@@ -165,7 +167,7 @@ export function InteractiveRouteMap({
   }
 
   function onPointerUp(event: PointerEvent<HTMLDivElement>) {
-    event.currentTarget.releasePointerCapture(event.pointerId);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     dragRef.current = null;
   }
 
@@ -201,6 +203,14 @@ export function InteractiveRouteMap({
         <button onClick={() => zoomBy(1)} type="button" aria-label="Ойртуулах">+</button>
         <button onClick={() => zoomBy(-1)} type="button" aria-label="Холдуулах">-</button>
       </div>
+      {onSelectPoint && (
+        <>
+          <span className="delivery-map-crosshair" aria-hidden="true">⊕</span>
+          <button className="delivery-map-confirm" type="button" onClick={() => onSelectPoint(center)}>
+            Энэ цэгт хүргэх
+          </button>
+        </>
+      )}
       {(statusLabel || statusDetail) && (
         <div className="interactive-route-status">
           {statusLabel && <strong>{statusLabel}</strong>}

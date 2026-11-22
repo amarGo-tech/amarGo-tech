@@ -5,6 +5,7 @@
   "description": "DeliverHub client applications",
   "type": "module",
   "scripts": {
+    "test:devices": "node --test tests/checkout-devices.test.mjs",
     "dev": "vite --host 127.0.0.1 --mode public --port 5173",
     "dev:public": "vite --host 127.0.0.1 --mode public --port 5173",
     "dev:admin": "vite --host 127.0.0.1 --mode admin --port 5174",
