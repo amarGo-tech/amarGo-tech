@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { useRef } from "react";
 import { createCameraSession } from "../../shared/cameraSession";
-import { watchAccurateLocation } from "../../shared/deliveryLocation";
+import { fetchDeliveryAddress, watchAccurateLocation } from "../../shared/deliveryLocation";
 import { BrandLogo } from "../../components/BrandLogo";
 import { InteractiveRouteMap, type RouteMapLine, type RouteMapMarker } from "../../components/InteractiveRouteMap";
 import { nominCatalogProducts, nominStoreProfile } from "../../shared/nominCatalog";
@@ -1009,6 +1009,9 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
   const [locationConfirmed, setLocationConfirmed] = useState(false);
   const locationRequestRef = useRef(0);
   const [addressText, setAddressText] = useState("");
+  const addressRevisionRef = useRef(0);
+  const autoAddressRef = useRef("");
+  const addressAbortRef = useRef<AbortController | null>(null);
   const [addressUnit, setAddressUnit] = useState("");
   const [checkoutEmail, setCheckoutEmail] = useState("");
   const [checkoutPhone, setCheckoutPhone] = useState("");
@@ -1064,12 +1067,14 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
   useEffect(() => () => {
     locationRequestRef.current++;
     stopGpsRef.current?.();
+    addressAbortRef.current?.abort();
   }, []);
 
   useEffect(() => {
     if (!cartOpen) {
       locationRequestRef.current++;
       stopGpsRef.current?.();
+      addressAbortRef.current?.abort();
       setAddressLookupLoading(false);
       setLoading(false);
     }
@@ -1838,6 +1843,10 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
       return;
     }
     stopGpsRef.current?.();
+    addressAbortRef.current?.abort();
+    const addressRevision = addressRevisionRef.current;
+    const previousAutoAddress = autoAddressRef.current;
+    setAddressText((current) => current === previousAutoAddress ? "" : current);
     const request = ++locationRequestRef.current;
     setLoading(true);
     setAddressLookupLoading(true);
@@ -1850,13 +1859,38 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
         if (request !== locationRequestRef.current) return;
         setLocation(point);
       },
-      onComplete: (point) => {
+      onComplete: async (point) => {
         if (request !== locationRequestRef.current) return;
-        setLoading(false);
-        setAddressLookupLoading(false);
         setLocation(point);
         setLocationConfirmed(true);
         setAddressError("");
+        const controller = new AbortController();
+        addressAbortRef.current = controller;
+        const timer = window.setTimeout(() => controller.abort(), 8000);
+        try {
+          const address = await fetchDeliveryAddress(point, controller.signal);
+          if (request !== locationRequestRef.current || addressRevision !== addressRevisionRef.current) return;
+          if (address) {
+            const previousAuto = autoAddressRef.current;
+            setAddressText((current) => {
+              if (current.trim() && current !== previousAuto) return current;
+              return address.label;
+            });
+            autoAddressRef.current = address.label;
+          } else {
+            setAddressError("GPS байршил авлаа. Энэ цэгийн гудамжны хаяг олдсонгүй, хаягаа бичнэ үү.");
+          }
+        } catch {
+          if (request === locationRequestRef.current && addressRevision === addressRevisionRef.current) {
+            setAddressError("GPS байршил авлаа. Хаяг татагдсангүй, хаягаа гараар оруулах эсвэл дахин оролдоно уу.");
+          }
+        } finally {
+          window.clearTimeout(timer);
+          if (request === locationRequestRef.current) {
+            setLoading(false);
+            setAddressLookupLoading(false);
+          }
+        }
       },
       onError: (error) => {
         if (request !== locationRequestRef.current) return;
@@ -2953,14 +2987,13 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
                           <strong>Таны байршлыг тогтоож байна</strong>
                         </div>
                       ) : null}
-                      {!addressLookupLoading ? (
-                        <>
-                          <label>
+<label>
                             Дэлгэрэнгүй хаяг
                             <input
                               value={addressText}
                               onChange={(event) => {
                                 setAddressText(event.target.value);
+                                addressRevisionRef.current++;
                                 if (event.target.value.trim()) setAddressError("");
                               }}
                               placeholder="Дүүрэг, хороо, гудамж"
@@ -2974,8 +3007,6 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
                               placeholder="12-р байр, 3-р орц, 45 тоот"
                             />
                           </label>
-                        </>
-                      ) : null}
                       {addressError ? <p role="alert">{addressError}</p> : null}
                     </section>
 

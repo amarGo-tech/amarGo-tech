@@ -90,11 +90,31 @@ export function addressSuggestion(place: AddressPlace, location: DeliveryLocatio
   const meters = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
   if (meters > 150) return null;
   const address = place.address ?? {};
+  const street = address.road ?? address.pedestrian ?? address.footway;
+  // A suburb/POI alone is not a delivery address (e.g. "Цайз, Улаанбаатар").
+  if (!street) return null;
   const label = [
-    [address.road ?? address.pedestrian ?? address.footway, address.house_number].filter(Boolean).join(" "),
-    address.neighbourhood ?? address.suburb ?? address.city_district ?? address.district,
+    [street, address.house_number].filter(Boolean).join(" "),
+    address.city_district ?? address.district,
     address.city ?? address.town ?? address.state,
   ].filter(Boolean).join(", ");
   if (!label) return null;
   return { id: String(place.place_id ?? "gps"), label, detail: label };
+}
+
+export async function fetchDeliveryAddress(
+  point: DeliveryLocation,
+  signal: AbortSignal,
+  fetchImpl: typeof fetch = fetch,
+) {
+  const url = new URL("https://nominatim.openstreetmap.org/reverse");
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("lat", String(point.latitude));
+  url.searchParams.set("lon", String(point.longitude));
+  url.searchParams.set("addressdetails", "1");
+  url.searchParams.set("zoom", "18");
+  url.searchParams.set("accept-language", "mn,en");
+  const response = await fetchImpl(url, { signal });
+  if (!response.ok) throw new Error("Хаяг татахад алдаа гарлаа.");
+  return addressSuggestion(await response.json(), point);
 }

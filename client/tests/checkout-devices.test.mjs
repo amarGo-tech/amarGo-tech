@@ -1,7 +1,31 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createCameraSession } from "../src/shared/cameraSession.ts";
-import { addressSuggestion, preciseLocation, validCoordinates, watchAccurateLocation } from "../src/shared/deliveryLocation.ts";
+import { addressSuggestion, preciseLocation, validCoordinates, watchAccurateLocation, fetchDeliveryAddress } from "../src/shared/deliveryLocation.ts";
+
+test("GPS address lookup uses the measured coordinates and returns a street address", async () => {
+  const controller = new AbortController();
+  const result = await fetchDeliveryAddress({ latitude: 47.92, longitude: 106.92 }, controller.signal, async (url, options) => {
+    assert.equal(url.searchParams.get("lat"), "47.92");
+    assert.equal(url.searchParams.get("lon"), "106.92");
+    assert.equal(options.signal, controller.signal);
+    return new Response(JSON.stringify({ lat: "47.92", lon: "106.92", address: {
+      road: "Энхтайваны өргөн чөлөө", house_number: "12", city: "Улаанбаатар",
+    } }));
+  });
+  assert.equal(result.label, "Энхтайваны өргөн чөлөө 12, Улаанбаатар");
+});
+
+test("a locality name alone cannot fill the detailed delivery address", () => {
+  assert.equal(addressSuggestion({ lat: "47.92", lon: "106.92", address: {
+    suburb: "Цайз", city: "Улаанбаатар",
+  } }, { latitude: 47.92, longitude: 106.92 }), null);
+});
+
+test("address provider errors stay errors instead of inventing an address", async () => {
+  await assert.rejects(fetchDeliveryAddress({ latitude: 47.92, longitude: 106.92 }, new AbortController().signal,
+    async () => new Response("Unavailable", { status: 503 })));
+});
 
 function deviceFix(latitude, accuracy, timestamp = Date.now()) {
   return { timestamp, coords: { latitude, longitude: 106.92, accuracy } };
