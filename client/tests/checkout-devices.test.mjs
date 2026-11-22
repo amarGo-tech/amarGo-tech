@@ -1,7 +1,24 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createCameraSession } from "../src/shared/cameraSession.ts";
-import { addressSuggestion, preciseLocation, validCoordinates, watchAccurateLocation, fetchDeliveryAddress } from "../src/shared/deliveryLocation.ts";
+import { addressSuggestion, preciseLocation, validCoordinates, watchAccurateLocation, fetchDeliveryAddress, reverseAddressText } from "../src/shared/deliveryLocation.ts";
+
+test("full reverse-geocoded addresses are kept even without a road field", () => {
+  assert.equal(reverseAddressText({
+    display_name: "12-р хороо, Баянзүрх дүүрэг, Улаанбаатар, Монгол",
+    address: { suburb: "12-р хороо", city: "Улаанбаатар" },
+  }), "12-р хороо, Баянзүрх дүүрэг, Улаанбаатар, Монгол");
+});
+
+test("structured locality fields still produce text when display_name is missing", () => {
+  assert.equal(reverseAddressText({ address: {
+    suburb: "Тестийн хороо", city_district: "Тестийн дүүрэг", city: "Дархан", country: "Монгол",
+  } }), "Тестийн хороо, Тестийн дүүрэг, Дархан, Монгол");
+});
+
+test("empty provider data never fabricates a place name", () => {
+  assert.equal(reverseAddressText({}), "");
+});
 
 test("GPS address lookup uses the measured coordinates and returns a street address", async () => {
   const controller = new AbortController();

@@ -79,6 +79,21 @@ export type AddressPlace = {
   address?: Record<string, string | undefined>;
 };
 
+export function reverseAddressText(place: AddressPlace) {
+  const displayName = place.display_name?.trim();
+  if (displayName) return displayName;
+  const address = place.address ?? {};
+  const parts = [
+    [address.road ?? address.pedestrian ?? address.footway, address.house_number].filter(Boolean).join(" "),
+    address.neighbourhood ?? address.suburb,
+    address.city_district ?? address.district,
+    address.city ?? address.town ?? address.village,
+    address.state,
+    address.country,
+  ].map((part) => part?.trim()).filter((part): part is string => Boolean(part));
+  return [...new Set(parts)].join(", ");
+}
+
 export function addressSuggestion(place: AddressPlace, location: DeliveryLocation) {
   const point = { latitude: Number(place.lat), longitude: Number(place.lon) };
   if (!validCoordinates(point)) return null;
