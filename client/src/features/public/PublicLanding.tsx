@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { useRef } from "react";
 import { createCameraSession } from "../../shared/cameraSession";
-import { preciseLocation, validCoordinates, watchAccurateLocation } from "../../shared/deliveryLocation";
+import { watchAccurateLocation } from "../../shared/deliveryLocation";
 import { BrandLogo } from "../../components/BrandLogo";
 import { InteractiveRouteMap, type RouteMapLine, type RouteMapMarker } from "../../components/InteractiveRouteMap";
 import { nominCatalogProducts, nominStoreProfile } from "../../shared/nominCatalog";
@@ -1005,7 +1005,6 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
   const [productQuantities, setProductQuantities] = useState<Record<string, number>>({});
   const [deliveryType, setDeliveryType] = useState<DeliveryType>("bike");
   const [location, setLocation] = useState<GeoLocation | null>(null);
-  const [gpsLocation, setGpsLocation] = useState<GeoLocation | null>(null);
   const stopGpsRef = useRef<(() => void) | null>(null);
   const [locationConfirmed, setLocationConfirmed] = useState(false);
   const locationRequestRef = useRef(0);
@@ -1610,8 +1609,8 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
     }
 
     if (!location || !locationConfirmed) {
-      setAddressError("Газрын зураг дээр хүргэлтийн цэгээ батална уу.");
-      setCheckoutError("Газрын зураг дээр хүргэлтийн цэгээ батална уу.");
+      setAddressError("Одоогийн байршлаа авна уу.");
+      setCheckoutError("Одоогийн байршлаа авна уу.");
       return;
     }
 
@@ -1833,18 +1832,6 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
     }
   }
 
-  function confirmDeliveryPoint(point: { lat: number; lng: number }) {
-    const nextLocation = { latitude: point.lat, longitude: point.lng };
-    if (!validCoordinates(nextLocation)) return;
-    locationRequestRef.current++;
-    stopGpsRef.current?.();
-    setLocation(nextLocation);
-    setLocationConfirmed(true);
-    setAddressError("");
-    setLoading(false);
-    setAddressLookupLoading(false);
-  }
-
   function useCurrentLocation() {
     if (!navigator.geolocation) {
       setAddressError("Энэ төхөөрөмж байршил авах боломжгүй байна.");
@@ -1855,23 +1842,21 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
     setLoading(true);
     setAddressLookupLoading(true);
     setLocationConfirmed(false);
-    setGpsLocation(null);
     setLocation(null);
     setAddressError("");
     stopGpsRef.current = watchAccurateLocation({
       geolocation: navigator.geolocation,
       onPosition: (point) => {
         if (request !== locationRequestRef.current) return;
-        setGpsLocation(point);
         setLocation(point);
       },
       onComplete: (point) => {
         if (request !== locationRequestRef.current) return;
         setLoading(false);
         setAddressLookupLoading(false);
-        const precise = preciseLocation(point);
-        setLocationConfirmed(precise);
-        setAddressError(precise ? "" : "Төхөөрөмжийн байршил нарийвчлал муутай байна. Утасны байршлын нарийвчилсан зөвшөөрлийг асааж дахин хэмжих эсвэл зураг дээр хүргүүлэх цэгээ батална уу.");
+        setLocation(point);
+        setLocationConfirmed(true);
+        setAddressError("");
       },
       onError: (error) => {
         if (request !== locationRequestRef.current) return;
@@ -2961,32 +2946,7 @@ export function PublicLanding({ page = "home", onNavigateHome, onNavigateMarket,
                           {location ? "GPS шинэчлэх" : "Одоогийн байршил авах"}
                         </button>
                       </div>
-                      <span>
-                        {location
-                          ? location.accuracy != null ? "Төхөөрөмжөөс хэмжсэн байршил" : "Газрын зураг дээр баталсан хүргэлтийн цэг"
-                          : "GPS байршил аваагүй байна"}
-                      </span>
-                      {gpsLocation && (
-                        <small>
-                          {gpsLocation.latitude.toFixed(6)}, {gpsLocation.longitude.toFixed(6)}
-                          {gpsLocation.accuracy != null ? ` · Нарийвчлал ±${Math.round(gpsLocation.accuracy)} м` : ""}
-                        </small>
-                      )}
-                      <p>Цэнхэр цэг нь төхөөрөмжийн байршил, хүрээ нь хэмжилтийн алдааны хүрээ. Хүргүүлэх өөр цэг сонгох бол ⊕ тэмдгээр батална уу.</p>
-                      {location && (
-                      <InteractiveRouteMap
-                        className="delivery-address-map"
-                        markers={[
-                          ...(gpsLocation ? [{ id: "device-gps", point: { lat: gpsLocation.latitude, lng: gpsLocation.longitude },
-                            label: "Төхөөрөмжийн хэмжсэн байршил", kind: "gps" as const, accuracyMeters: gpsLocation.accuracy }] : []),
-                          ...(location.accuracy == null ? [{ id: "delivery-address", point: { lat: location.latitude, lng: location.longitude },
-                            label: "Гараар баталсан хүргэлтийн цэг", kind: "customer" as const }] : []),
-                        ]}
-                        initialZoom={16}
-                        onSelectPoint={confirmDeliveryPoint}
-                      />
-                      )}
-                      <p role="status">{locationConfirmed ? "Хүргэлтийн цэг батлагдсан." : "Хүргэлтийн цэгээ батлаагүй байна."}</p>
+                      <span role="status">{locationConfirmed ? "Байршил авлаа." : "Байршлаа авна уу."}</span>
                       {addressLookupLoading ? (
                         <div className="landing-address-loading" role="status">
                           <span aria-hidden="true" />
