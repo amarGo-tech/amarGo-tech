@@ -9,7 +9,8 @@ export type RouteMapMarker = {
   id: string;
   point: RouteMapPoint;
   label: string;
-  kind: "store" | "courier" | "customer" | "offer";
+  kind: "store" | "courier" | "customer" | "offer" | "gps";
+  accuracyMeters?: number;
 };
 
 export type RouteMapLine = {
@@ -188,6 +189,13 @@ export function InteractiveRouteMap({
       {safeRoutes.map((route) => (
         <span className={`interactive-route-line route-${route.kind ?? "neutral"}`} key={route.id} style={lineStyle(route, center, zoom)} />
       ))}
+      {safeMarkers.filter((marker) => Number(marker.accuracyMeters) > 0).map((marker) => {
+        const metersPerPixel = 156543.03392 * Math.cos(Number(marker.point.lat) * Math.PI / 180) / 2 ** zoom;
+        const diameter = 2 * Number(marker.accuracyMeters) / metersPerPixel;
+        return <span key={`accuracy-${marker.id}`} className="gps-accuracy-circle" style={{
+          ...pointStyle(marker.point, center, zoom), width: diameter, height: diameter,
+        }} aria-hidden="true" />;
+      })}
       {safeMarkers.map((marker) => (
         <span
           aria-label={marker.label}

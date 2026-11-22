@@ -1,7 +1,84 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createCameraSession } from "../src/shared/cameraSession.ts";
-import { addressSuggestion, preciseLocation, validCoordinates } from "../src/shared/deliveryLocation.ts";
+import { addressSuggestion, preciseLocation, validCoordinates, watchAccurateLocation } from "../src/shared/deliveryLocation.ts";
+
+function deviceFix(latitude, accuracy, timestamp = Date.now()) {
+  return { timestamp, coords: { latitude, longitude: 106.92, accuracy } };
+}
+
+function gpsHarness(extra = {}) {
+  let success;
+  let failure;
+  let options;
+  const cleared = [];
+  const updates = [];
+  const completed = [];
+  const errors = [];
+  const stop = watchAccurateLocation({
+    geolocation: {
+      watchPosition(onSuccess, onFailure, value) { success = onSuccess; failure = onFailure; options = value; return 17; },
+      clearWatch(id) { cleared.push(id); },
+    },
+    onPosition: (value) => updates.push(value),
+    onComplete: (value) => completed.push(value),
+    onError: (value) => errors.push(value),
+    ...extra,
+  });
+  return { success, failure, options, cleared, updates, completed, errors, stop };
+}
+
+test("GPS requests fresh high-accuracy readings and improves a coarse fix", () => {
+  const gps = gpsHarness();
+  assert.equal(gps.options.maximumAge, 0);
+  assert.equal(gps.options.enableHighAccuracy, true);
+  gps.success(deviceFix(47.9, 5000));
+  gps.success(deviceFix(47.91, 250));
+  gps.success(deviceFix(47.92, 12));
+  assert.equal(gps.completed[0].latitude, 47.92);
+  assert.equal(gps.completed[0].accuracy, 12);
+  assert.deepEqual(gps.cleared, [17]);
+});
+
+test("GPS rejects stale and invalid fixes instead of showing an old location", () => {
+  const gps = gpsHarness();
+  gps.success(deviceFix(47.9, 10, Date.now() - 60000));
+  gps.success(deviceFix(NaN, 10));
+  gps.success(deviceFix(47.9, -1));
+  assert.equal(gps.updates.length, 0);
+  gps.stop();
+});
+
+test("a worse reading never replaces the best GPS measurement", async () => {
+  const gps = gpsHarness({ durationMs: 10 });
+  gps.success(deviceFix(47.91, 80));
+  gps.success(deviceFix(47.95, 2000));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(gps.updates.length, 1);
+  assert.equal(gps.completed[0].latitude, 47.91);
+});
+
+test("cancelled GPS acquisition ignores late device callbacks", () => {
+  const gps = gpsHarness();
+  gps.stop();
+  gps.success(deviceFix(47.92, 10));
+  assert.equal(gps.updates.length, 0);
+  assert.equal(gps.completed.length, 0);
+});
+
+test("permission denied stops the watch and reports an explicit error", () => {
+  const gps = gpsHarness();
+  gps.failure({ code: 1, message: "Denied" });
+  assert.deepEqual(gps.cleared, [17]);
+  assert.equal(gps.errors[0].code, 1);
+});
+
+test("no fresh device measurement produces an error, never a fallback coordinate", async () => {
+  const gps = gpsHarness({ durationMs: 10 });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(gps.completed.length, 0);
+  assert.equal(gps.errors[0].code, 3);
+});
 
 function fakeCamera(getStream) {
   const state = { active: false, error: "" };

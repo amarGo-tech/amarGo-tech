@@ -24758,3 +24758,25 @@ h2 {
   color: white;
   white-space: nowrap;
 }
+
+.gps-accuracy-circle {
+  position: absolute;
+  left: var(--map-x);
+  top: var(--map-y);
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(37, 99, 235, 0.55);
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.15);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.interactive-route-marker.marker-gps {
+  width: 16px;
+  height: 16px;
+  border: 3px solid white;
+  border-radius: 50%;
+  background: #2563eb;
+  box-shadow: 0 0 0 2px #2563eb;
+  z-index: 5;
+}
